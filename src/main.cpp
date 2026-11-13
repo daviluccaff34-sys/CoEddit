@@ -124,6 +124,10 @@ static void ensureAuthorized(std::function<void(std::string)> callback) {
         coeditText("CoEddit Authorization", "Autorização do CoEddit"),
         coeditText("Enter the authorization key", "Digite a chave de autorização"),
         [callback](std::string entered) {
+            if (entered != "AUTH000100300401036393972737383737") {
+                FLAlertLayer::create("CoEddit", coeditText("Invalid authorization key.", "Chave de autorização inválida."), "OK")->show();
+                return;
+            }
             auto request = web::WebRequest();
             request.header("X-CoEddit-Key", entered);
             request.header("Content-Type", "application/json");
