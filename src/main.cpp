@@ -1,5 +1,6 @@
 #include <Geode/Geode.hpp>
 #include <Geode/modify/EditorUI.hpp>
+#include <Geode/modify/LevelEditorLayer.hpp>
 #include <Geode/modify/LevelBrowserLayer.hpp>
 #include <Geode/utils/web.hpp>
 #include <Geode/utils/async.hpp>
@@ -7,13 +8,13 @@
 
 using namespace geode::prelude;
 
-#include <Geode/cocos/extensions/network/WebSocket.h>
-using cocos2d::extension::WebSocket;
-
+static std::string g_roomId;
 static std::string g_lastSentSnapshot;
-static std::string g_remoteSnapshot;
-static float g_syncElapsed = 0.f;
-static WebSocket* g_coeditSocket = nullptr;
+static float g_sendElapsed = 0.f;
+static float g_pollElapsed = 0.f;
+static bool g_sendPending = false;
+static bool g_pollPending = false;
+static int g_remoteRevision = 0;
 
 static std::string jsonField(std::string const& body, std::string const& field) {
     auto key = std::string("\"") + field + "\":\"";
@@ -24,63 +25,72 @@ static std::string jsonField(std::string const& body, std::string const& field) 
     return end == std::string::npos ? std::string{} : body.substr(pos, end - pos);
 }
 
-class CoEdditSocketDelegate : public WebSocket::Delegate {
-public:
-    void onOpen(WebSocket* ws) override {
-        if (!g_lastSentSnapshot.empty()) ws->send("S|" + g_lastSentSnapshot);
+static void syncSendSnapshot(std::string snapshot) {
+    if (g_roomId.empty() || g_sendPending || snapshot.empty() || snapshot == g_lastSentSnapshot) return;
+    g_sendPending = true;
+    auto request = web::WebRequest();
+    request.header("Content-Type", "application/json");
+    request.header("X-CoEddit-Key", Mod::get()->getSavedValue<std::string>("authorization-key", ""));
+    std::string escaped;
+    for (char c : snapshot) {
+        if (c == '"' || c == '\\\\') escaped += '\\\\';
+        if (c == '\\n') { escaped += "\\\\n"; continue; }
+        if (c == '\\r') { escaped += "\\\\r"; continue; }
+        escaped += c;
     }
-    void onMessage(WebSocket*, const WebSocket::Data& data) override {
-        if (!data.bytes || data.len <= 2) return;
-        std::string message(data.bytes, data.len);
-        if (message.rfind("S|", 0) == 0) g_remoteSnapshot = message.substr(2);
-    }
-    void onClose(WebSocket*) override { g_coeditSocket = nullptr; }
-    void onError(WebSocket*, const WebSocket::ErrorCode&) override {
-        log::warn("CoEddit WebSocket connection error");
-    }
-};
-static CoEdditSocketDelegate g_socketDelegate;
-
-static void connectCoEdditRoom(std::string const& roomId, std::string const& key) {
-    if (g_coeditSocket) {
-        g_coeditSocket->close();
-        g_coeditSocket = nullptr;
-    }
+    request.bodyString(std::string("{\\"snapshot\\":\\"") + escaped + "\\"}");
+    auto url = std::string(API) + "/rooms/" + g_roomId + "/snapshot";
+    async::spawn(request.post(url), [snapshot](web::WebResponse response) {
+        g_sendPending = false;
+        if (response.ok()) g_lastSentSnapshot = snapshot;
+        else log::warn("CoEddit: snapshot upload failed.");
+    });
+}
+static void syncPollSnapshot() {
+    if (g_roomId.empty() || g_pollPending) return;
+    g_pollPending = true;
+    auto request = web::WebRequest();
+    request.header("X-CoEddit-Key", Mod::get()->getSavedValue<std::string>("authorization-key", ""));
+    auto url = std::string(API) + "/rooms/" + g_roomId + "/snapshot";
+    async::spawn(request.get(url), [](web::WebResponse response) {
+        g_pollPending = false;
+        if (!response.ok()) { log::warn("CoEddit: snapshot poll failed."); return; }
+        auto body = response.string().unwrapOr("");
+        auto revisionText = jsonField(body, "revision");
+        if (!revisionText.empty()) {
+            auto revision = std::atoi(revisionText.c_str());
+            if (revision > g_remoteRevision) {
+                g_remoteRevision = revision;
+                log::info("CoEddit: a newer room snapshot is available.");
+            }
+        }
+    });
+}
+static void connectCoEdditRoom(std::string const& roomId, std::string const&) {
+    g_roomId = roomId;
     g_lastSentSnapshot.clear();
-    g_remoteSnapshot.clear();
-    auto url = std::string("wss://coeddit-api.daviluccaff34.workers.dev/rooms/") +
-        roomId + "/ws?key=" + key;
-    auto socket = new WebSocket();
-    if (!socket->init(g_socketDelegate, url)) {
-        delete socket;
-        FLAlertLayer::create("CoEddit", "Não foi possível conectar à sala.", "OK")->show();
-        return;
-    }
-    g_coeditSocket = socket;
-    FLAlertLayer::create("CoEddit", "Conectando à sala online...", "OK")->show();
+    g_remoteRevision = 0;
+    g_sendElapsed = 0.f;
+    g_pollElapsed = 0.f;
+    FLAlertLayer::create("CoEddit", "Conectado à sala por HTTP. As atualizações podem levar alguns segundos.", "OK")->show();
 }
 
 class $modify(CoEdditLevelEditorLayer, LevelEditorLayer) {
     void postUpdate(float dt) {
         LevelEditorLayer::postUpdate(dt);
-        if (!g_coeditSocket || g_coeditSocket->getReadyState() != WebSocket::kStateOpen) return;
-        g_syncElapsed += dt;
-        if (g_syncElapsed < 0.5f) return;
-        g_syncElapsed = 0.f;
-        auto snapshot = this->getLevelString();
-        if (snapshot != g_lastSentSnapshot) {
-            g_lastSentSnapshot = snapshot;
-            g_coeditSocket->send("S|" + snapshot);
+        if (g_roomId.empty()) return;
+        g_sendElapsed += dt;
+        g_pollElapsed += dt;
+        if (g_sendElapsed >= 1.0f) {
+            g_sendElapsed = 0.f;
+            syncSendSnapshot(this->getLevelString());
         }
-        if (!g_remoteSnapshot.empty() && g_remoteSnapshot != g_lastSentSnapshot) {
-            // Keep the remote snapshot queued for a future conflict-safe apply flow.
-            // Never replace the open level automatically: that could erase local edits.
-            log::info("CoEddit: received a remote level snapshot.");
-            g_remoteSnapshot.clear();
+        if (g_pollElapsed >= 3.0f) {
+            g_pollElapsed = 0.f;
+            syncPollSnapshot();
         }
     }
 };
-
 
 static constexpr char API[] = "https://coeddit-api.daviluccaff34.workers.dev";
 
@@ -113,7 +123,7 @@ static void showResult(std::string const& title, web::WebResponse response) {
         auto key = getAuthKey();
         if (!id.empty()) connectCoEdditRoom(id, key);
     }
-    FLAlertLayer::create(title, body, "OK")->show();
+    FLAlertLayer::create(title.c_str(), body.c_str(), "OK")->show();
 }
 
 static void apiPost(std::string const& path, std::string const& body, std::string const& key, std::string const& title) {
@@ -176,7 +186,7 @@ protected:
             return;
         }
         auto callback = m_callback;
-        this->onClose();
+        this->onClose(nullptr);
         if (callback) callback(value);
     }
 };
