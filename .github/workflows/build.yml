@@ -35,7 +35,7 @@ jobs:
 
   release:
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: (startsWith(github.ref, 'refs/tags/v')) || (github.ref == 'refs/heads/main' && github.event.head_commit.message == 'Prepare Android builds and named GitHub releases')
     runs-on: ubuntu-latest
     steps:
       - name: Download Android64 package
@@ -48,6 +48,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           name: lançamento
-          tag_name: ${{ github.ref_name }}
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'v1.1.0' }}
+          target_commitish: ${{ github.sha }}
           generate_release_notes: true
           files: release-package/*.geode
