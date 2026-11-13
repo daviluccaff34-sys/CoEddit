@@ -6,9 +6,9 @@
   },
   "id": "davilucca.coedit",
   "name": "CoEddit",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "developer": "Davi",
-  "description": "Collaborative real-time Geometry Dash level editing.",
+  "description": "Shared-key authorization and online collaborative room creation.",
   "settings": {
     "language": {
       "type": "string",
