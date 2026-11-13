@@ -5,6 +5,7 @@
 #include <Geode/utils/web.hpp>
 #include <Geode/utils/async.hpp>
 #include <functional>
+#include <cstdlib>
 
 using namespace geode::prelude;
 
@@ -34,12 +35,12 @@ static void syncSendSnapshot(std::string snapshot) {
     request.header("X-CoEddit-Key", Mod::get()->getSavedValue<std::string>("authorization-key", ""));
     std::string escaped;
     for (char c : snapshot) {
-        if (c == '"' || c == '\\\\') escaped += '\\\\';
-        if (c == '\\n') { escaped += "\\\\n"; continue; }
-        if (c == '\\r') { escaped += "\\\\r"; continue; }
+        if (c == '"' || c == '\\') escaped += '\\';
+        if (c == '\n') { escaped += "\\n"; continue; }
+        if (c == '\r') { escaped += "\\r"; continue; }
         escaped += c;
     }
-    request.bodyString(std::string("{\\"snapshot\\":\\"") + escaped + "\\"}");
+    request.bodyString(std::string("{\"snapshot\":\"") + escaped + "\"}");
     auto url = std::string(API) + "/rooms/" + g_roomId + "/snapshot";
     async::spawn(request.post(url), [snapshot](web::WebResponse response) {
         g_sendPending = false;
@@ -57,9 +58,9 @@ static void syncPollSnapshot() {
         g_pollPending = false;
         if (!response.ok()) { log::warn("CoEddit: snapshot poll failed."); return; }
         auto body = response.string().unwrapOr("");
-        auto key = body.find("\\\"revision\\\":");
+        auto key = body.find("\"revision\":");
         if (key != std::string::npos) {
-            key += 10;
+            key += 11;
             auto end = body.find_first_of(",}", key);
             auto revision = std::atoi(body.substr(key, end - key).c_str());
             if (revision > g_remoteRevision) {
@@ -94,8 +95,6 @@ class $modify(CoEdditLevelEditorLayer, LevelEditorLayer) {
         }
     }
 };
-
-static constexpr char API[] = "https://coeddit-api.daviluccaff34.workers.dev";
 
 static std::string coeditText(char const* english, char const* portuguese) {
     auto language = Mod::get()->getSettingValue<std::string>("language");
