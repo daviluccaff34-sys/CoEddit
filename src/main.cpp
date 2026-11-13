@@ -87,7 +87,7 @@ class $modify(CoEdditLevelEditorLayer, LevelEditorLayer) {
         g_pollElapsed += dt;
         if (g_sendElapsed >= 1.0f) {
             g_sendElapsed = 0.f;
-            syncSendSnapshot(this->getLevelString());
+            syncSendSnapshot(std::string(this->getLevelString().c_str()));
         }
         if (g_pollElapsed >= 3.0f) {
             g_pollElapsed = 0.f;
