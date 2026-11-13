@@ -8,5 +8,17 @@
   "name": "CoEddit",
   "version": "1.0.0",
   "developer": "Davi",
-  "description": "Collaborative real-time Geometry Dash level editing."
+  "description": "Collaborative real-time Geometry Dash level editing.",
+  "settings": {
+    "language": {
+      "type": "string",
+      "name": "Language / Idioma",
+      "description": "Choose the language used by CoEddit. / Escolha o idioma usado pelo CoEddit.",
+      "default": "English",
+      "one-of": [
+        "English",
+        "Português"
+      ]
+    }
+  }
 }
