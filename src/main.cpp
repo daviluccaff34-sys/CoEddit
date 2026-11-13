@@ -15,6 +15,7 @@ static float g_pollElapsed = 0.f;
 static bool g_sendPending = false;
 static bool g_pollPending = false;
 static int g_remoteRevision = 0;
+static constexpr char API[] = "https://coeddit-api.daviluccaff34.workers.dev";
 
 static std::string jsonField(std::string const& body, std::string const& field) {
     auto key = std::string("\"") + field + "\":\"";
@@ -56,9 +57,11 @@ static void syncPollSnapshot() {
         g_pollPending = false;
         if (!response.ok()) { log::warn("CoEddit: snapshot poll failed."); return; }
         auto body = response.string().unwrapOr("");
-        auto revisionText = jsonField(body, "revision");
-        if (!revisionText.empty()) {
-            auto revision = std::atoi(revisionText.c_str());
+        auto key = body.find("\\\"revision\\\":");
+        if (key != std::string::npos) {
+            key += 10;
+            auto end = body.find_first_of(",}", key);
+            auto revision = std::atoi(body.substr(key, end - key).c_str());
             if (revision > g_remoteRevision) {
                 g_remoteRevision = revision;
                 log::info("CoEddit: a newer room snapshot is available.");
