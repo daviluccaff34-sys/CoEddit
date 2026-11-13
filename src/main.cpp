@@ -16,7 +16,7 @@ static float g_syncElapsed = 0.f;
 static WebSocket* g_coeditSocket = nullptr;
 
 static std::string jsonField(std::string const& body, std::string const& field) {
-    auto key = std::string("\\\"") + field + "\\":\\\"";
+    auto key = std::string("\"") + field + "\":\"";
     auto pos = body.find(key);
     if (pos == std::string::npos) return {};
     pos += key.size();
@@ -73,17 +73,10 @@ class $modify(CoEdditLevelEditorLayer, LevelEditorLayer) {
             g_coeditSocket->send("S|" + snapshot);
         }
         if (!g_remoteSnapshot.empty() && g_remoteSnapshot != g_lastSentSnapshot) {
-            auto current = this->getLevelString();
-            if (current == g_lastSentSnapshot) {
-                auto incoming = g_remoteSnapshot;
-                g_remoteSnapshot.clear();
-                this->removeAllObjects();
-                this->createObjectsFromSetup(&incoming);
-                g_lastSentSnapshot = this->getLevelString();
-            } else {
-                log::warn("CoEddit: snapshot remoto ignorado para preservar edições locais.");
-                g_remoteSnapshot.clear();
-            }
+            // Keep the remote snapshot queued for a future conflict-safe apply flow.
+            // Never replace the open level automatically: that could erase local edits.
+            log::info("CoEddit: received a remote level snapshot.");
+            g_remoteSnapshot.clear();
         }
     }
 };
