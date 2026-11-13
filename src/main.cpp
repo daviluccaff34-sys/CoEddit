@@ -7,6 +7,88 @@
 
 using namespace geode::prelude;
 
+#include <Geode/cocos/extensions/network/WebSocket.h>
+using cocos2d::extension::WebSocket;
+
+static std::string g_lastSentSnapshot;
+static std::string g_remoteSnapshot;
+static float g_syncElapsed = 0.f;
+static WebSocket* g_coeditSocket = nullptr;
+
+static std::string jsonField(std::string const& body, std::string const& field) {
+    auto key = std::string("\\\"") + field + "\\":\\\"";
+    auto pos = body.find(key);
+    if (pos == std::string::npos) return {};
+    pos += key.size();
+    auto end = body.find('"', pos);
+    return end == std::string::npos ? std::string{} : body.substr(pos, end - pos);
+}
+
+class CoEdditSocketDelegate : public WebSocket::Delegate {
+public:
+    void onOpen(WebSocket* ws) override {
+        if (!g_lastSentSnapshot.empty()) ws->send("S|" + g_lastSentSnapshot);
+    }
+    void onMessage(WebSocket*, const WebSocket::Data& data) override {
+        if (!data.bytes || data.len <= 2) return;
+        std::string message(data.bytes, data.len);
+        if (message.rfind("S|", 0) == 0) g_remoteSnapshot = message.substr(2);
+    }
+    void onClose(WebSocket*) override { g_coeditSocket = nullptr; }
+    void onError(WebSocket*, const WebSocket::ErrorCode&) override {
+        log::warn("CoEddit WebSocket connection error");
+    }
+};
+static CoEdditSocketDelegate g_socketDelegate;
+
+static void connectCoEdditRoom(std::string const& roomId, std::string const& key) {
+    if (g_coeditSocket) {
+        g_coeditSocket->close();
+        g_coeditSocket = nullptr;
+    }
+    g_lastSentSnapshot.clear();
+    g_remoteSnapshot.clear();
+    auto url = std::string("wss://coeddit-api.daviluccaff34.workers.dev/rooms/") +
+        roomId + "/ws?key=" + key;
+    auto socket = new WebSocket();
+    if (!socket->init(g_socketDelegate, url)) {
+        delete socket;
+        FLAlertLayer::create("CoEddit", "Não foi possível conectar à sala.", "OK")->show();
+        return;
+    }
+    g_coeditSocket = socket;
+    FLAlertLayer::create("CoEddit", "Conectando à sala online...", "OK")->show();
+}
+
+class $modify(CoEdditLevelEditorLayer, LevelEditorLayer) {
+    void postUpdate(float dt) {
+        LevelEditorLayer::postUpdate(dt);
+        if (!g_coeditSocket || g_coeditSocket->getReadyState() != WebSocket::kStateOpen) return;
+        g_syncElapsed += dt;
+        if (g_syncElapsed < 0.5f) return;
+        g_syncElapsed = 0.f;
+        auto snapshot = this->getLevelString();
+        if (snapshot != g_lastSentSnapshot) {
+            g_lastSentSnapshot = snapshot;
+            g_coeditSocket->send("S|" + snapshot);
+        }
+        if (!g_remoteSnapshot.empty() && g_remoteSnapshot != g_lastSentSnapshot) {
+            auto current = this->getLevelString();
+            if (current == g_lastSentSnapshot) {
+                auto incoming = g_remoteSnapshot;
+                g_remoteSnapshot.clear();
+                this->removeAllObjects();
+                this->createObjectsFromSetup(&incoming);
+                g_lastSentSnapshot = this->getLevelString();
+            } else {
+                log::warn("CoEddit: snapshot remoto ignorado para preservar edições locais.");
+                g_remoteSnapshot.clear();
+            }
+        }
+    }
+};
+
+
 static constexpr char API[] = "https://coeddit-api.daviluccaff34.workers.dev";
 
 static std::string coeditText(char const* english, char const* portuguese) {
@@ -30,8 +112,15 @@ static std::string getAuthKey() {
 
 static void showResult(std::string const& title, web::WebResponse response) {
     auto body = response.string().unwrapOr("Sem resposta do servidor.");
-    auto text = response.ok() ? body : body;
-    FLAlertLayer::create(title, text, "OK")->show();
+    if (response.ok() && (title.find("Room created") != std::string::npos ||
+        title.find("Sala criada") != std::string::npos ||
+        title.find("Join result") != std::string::npos ||
+        title.find("Resultado da entrada") != std::string::npos)) {
+        auto id = jsonField(body, "id");
+        auto key = getAuthKey();
+        if (!id.empty()) connectCoEdditRoom(id, key);
+    }
+    FLAlertLayer::create(title, body, "OK")->show();
 }
 
 static void apiPost(std::string const& path, std::string const& body, std::string const& key, std::string const& title) {
