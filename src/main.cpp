@@ -4,10 +4,12 @@
 
 using namespace geode::prelude;
 
-// The first UI milestone: Host is available from the editor,
-// while Join is available from the level browser (My Levels).
-// The room/network actions are placeholders until the room system is added.
+static std::string coeditText(char const* english, char const* portuguese) {
+    auto language = Mod::get()->getSettingValue<std::string>("language");
+    return language == "Português" ? portuguese : english;
+}
 
+// HOST is shown inside the level editor.
 class $modify(CoEdditEditorUI, EditorUI) {
     bool init(LevelEditorLayer* editorLayer) {
         if (!EditorUI::init(editorLayer))
@@ -16,8 +18,9 @@ class $modify(CoEdditEditorUI, EditorUI) {
         auto menu = CCMenu::create();
         menu->setID("coedit-host-menu");
 
+        auto hostLabel = coeditText("HOST", "CRIAR SALA");
         auto button = CCMenuItemSpriteExtra::create(
-            ButtonSprite::create("HOST", 45, true, "goldFont.fnt", "GJ_button_01.png", 30, 1),
+            ButtonSprite::create(hostLabel.c_str(), 45, true, "goldFont.fnt", "GJ_button_01.png", 30, 1),
             this,
             menu_selector(CoEdditEditorUI::onCoEdditHost)
         );
@@ -32,14 +35,16 @@ class $modify(CoEdditEditorUI, EditorUI) {
     }
 
     void onCoEdditHost(CCObject*) {
-        FLAlertLayer::create(
-            "CoEddit - Host",
-            "Room hosting is coming soon! This button is placed inside the level editor.",
-            "OK"
-        )->show();
+        auto title = coeditText("CoEddit - Host", "CoEddit - Criar sala");
+        auto message = coeditText(
+            "Room hosting is not connected yet. The next step is connecting the room server.",
+            "A criação de salas ainda não está conectada. O próximo passo é ligar o servidor de salas."
+        );
+        FLAlertLayer::create(title, message, "OK")->show();
     }
 };
 
+// JOIN is shown in the level browser.
 class $modify(CoEdditLevelBrowser, LevelBrowserLayer) {
     bool init(GJSearchObject* searchObject) {
         if (!LevelBrowserLayer::init(searchObject))
@@ -48,8 +53,9 @@ class $modify(CoEdditLevelBrowser, LevelBrowserLayer) {
         auto menu = CCMenu::create();
         menu->setID("coedit-join-menu");
 
+        auto joinLabel = coeditText("JOIN", "ENTRAR");
         auto button = CCMenuItemSpriteExtra::create(
-            ButtonSprite::create("JOIN", 45, true, "goldFont.fnt", "GJ_button_01.png", 30, 1),
+            ButtonSprite::create(joinLabel.c_str(), 45, true, "goldFont.fnt", "GJ_button_01.png", 30, 1),
             this,
             menu_selector(CoEdditLevelBrowser::onCoEdditJoin)
         );
@@ -64,11 +70,12 @@ class $modify(CoEdditLevelBrowser, LevelBrowserLayer) {
     }
 
     void onCoEdditJoin(CCObject*) {
-        FLAlertLayer::create(
-            "CoEddit - Join",
-            "Joining a room is coming soon! This button is placed in the level browser.",
-            "OK"
-        )->show();
+        auto title = coeditText("CoEddit - Join", "CoEddit - Entrar");
+        auto message = coeditText(
+            "Joining rooms is not connected yet. The next step is connecting the room server.",
+            "A entrada em salas ainda não está conectada. O próximo passo é ligar o servidor de salas."
+        );
+        FLAlertLayer::create(title, message, "OK")->show();
     }
 };
 
