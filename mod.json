@@ -1,0 +1,12 @@
+{
+  "geode": "5.11.2",
+  "gd": {
+    "android": "2.2081",
+    "win": "2.2081"
+  },
+  "id": "davilucca.coedit",
+  "name": "CoEddit",
+  "version": "1.0.0",
+  "developer": "Davi",
+  "description": "Collaborative real-time Geometry Dash level editing."
+}
